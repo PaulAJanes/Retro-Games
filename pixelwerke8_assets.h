@@ -14,19 +14,21 @@ typedef uint8_t AssetStatus;
 typedef uint16_t AssetAddress;
 
 typedef struct{
-	//An address, assumes a square grid
+	//An address
+	//[31..16] are x
+	//[15..0] are y
 	AssetAddress address;
 	
-	//[0..2] are direction
-	//[3..7] are speed
+	//[7..3] are speed
+	//[2..0] are direction
 	uint8_t velocity;
 	
-	//[0] is collision
-	//[1] is in-play vs staged
-	//[2] is alive vs dead
-	//[3] is mobile vs fixed
-	//[4..5] are width in tiles, 1-4
-	//[6..7] are height in tiles, 1-4
+	//[7..6] are height in tiles, 2-5
+	//[5..4] are width in tiles, 2-5
+	//[3] is mobile 1 vs fixed 0
+	//[2] is alive 1 vs dead 0
+	//[1] is in-play 1 vs staged 0
+	//[0] is collisian enabled 1 vs disabled 0
 	uint8_t sprite_flags;
 	
 	//Index of this sprite's animation
@@ -45,18 +47,9 @@ typedef struct{
 
 typedef struct{
 	
-	uint8_t layer_flags;
-	
-} Layer;
-
-typedef struct{
-	
 	Tile* tiles;
 	
-	Layer* layers;
-	
-	uint8_t size;
-	
+	uint8_t flags;
 } Region;
 //End unused assets
 

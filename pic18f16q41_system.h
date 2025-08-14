@@ -25,6 +25,7 @@ SystemStatus TickClockInit(uint8_t fps);
 SystemStatus PWMInit(void);
 SystemStatus PWMDisable(void);
 SystemStatus PWMSetDutyCycle(uint16_t cycle);
+SystemStatus PWMSetPeriod(uint16_t period);
 SystemStatus PWMSetPrescaler(uint8_t scale);
 SystemStatus StartTick(void);
 SystemStatus CheckTick(uint8_t* tick);

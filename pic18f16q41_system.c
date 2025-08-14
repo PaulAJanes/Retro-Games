@@ -1,4 +1,3 @@
-#include <xc.h>
 #include "pic18f16q41_system.h"
 
 //Function to initialize pins for input/output
@@ -125,8 +124,10 @@ SystemStatus PWMInit(void){
 	
 	//Select MFINTOSC as clock source
 	PWM1CLK = 0x06;
-	
-	//Enable PWM1
+    
+    PWM1CPRE = 0x00;
+    
+    //Enable PWM1
 	PWM1CONbits.EN = 1;
 	
 	//Set PWM output pin to C2
@@ -165,7 +166,37 @@ SystemStatus PWMSetDutyCycle(uint16_t cycle){
 	//Set LO byte to LSB of input
 	PWM1S1P1L = cycle & 0x00FF;
 	
+    //Latch change
 	PWM1CONbits.LD = 1;
+    
+    //Wait for hardware reset of change latch
+    while(PWM1CONbits.LD == 1){
+        
+    }
+	
+	//Return OK
+	return SYSTEM_OK;
+}
+
+//Function to set period for PWM
+//Takes in period as 16-bit number
+//Sets HI and LO bytes of period register
+//Returns status
+SystemStatus PWMSetPeriod(uint16_t period){
+    
+    //Set HI byte to MSB of input
+    PWM1PRH = (period >> 8) & 0x00FF;
+    
+    //Set LO byte to LSB of input
+    PWM1PRL = period & 0x00FF;
+    
+    //Latch change
+    PWM1CONbits.LD = 1;
+    
+    //Wait for hardware reset of change latch
+    while(PWM1CONbits.LD == 1){
+        
+    }
 	
 	//Return OK
 	return SYSTEM_OK;
@@ -176,11 +207,13 @@ SystemStatus PWMSetDutyCycle(uint16_t cycle){
 //Sets value directly in correct register
 //Returns status
 SystemStatus PWMSetPrescaler(uint8_t scale){
+    
+    PWMDisable();
 	
 	//Set prescale register to input scale value
 	PWM1CPRE = scale;
-	
-	PWM1CONbits.LD = 1;
+    
+    PWMInit();
 	
 	//Return OK
 	return SYSTEM_OK;

@@ -1,7 +1,47 @@
 #include "pixelwerke8_mono.h"
-#include "game_art.h"
 
-static const uint8_t COLORS[4] = {OFF_COLOR_HI, ON_COLOR_HI, OFF_COLOR_LO, ON_COLOR_LO};
+//Colors to be used for rendering
+//[0] is hi byte of background (off) color
+//[1] is hi byte of foreground (on) color
+//[2] is lo byte of background (off) color
+//[3] is lo byte of foreground (on) color
+static uint8_t colors[4];
+
+//Default colors: black off, white on
+const uint8_t DEFAULT_COLORS[4] = {0x00, 0xFF, 0x00, 0xFF};
+
+//Function to initialize renderer
+//Takes in color pallette in the format laid out above at colors[4]
+//Sets color pallette to match input
+//Inits SPI
+//Inits ST7789
+//Returns status
+RenderStatus PW8MonoInit(uint8_t* game_colors){
+	
+	//Copy color pallette
+	colors[0] = game_colors[0];
+	colors[1] = game_colors[1];
+	colors[2] = game_colors[2];
+	colors[3] = game_colors[3];
+	
+	//Placeholder status
+	RenderStatus status = RENDER_UNKNOWN_ERROR;
+	
+	//Attempt to init SPI, must be before ST7789 init
+	//If error, return error
+	if((status = Spi1TxInit()) != RENDER_OK){
+		return RENDER_DOWNSTREAM_ERROR | status;
+	}
+	
+	//Attempt to init ST7789, must be after SPI init
+	//If error, return error
+	if((status = St7789Init()) != RENDER_OK){
+		return RENDER_DOWNSTREAM_ERROR | status;
+	}
+	
+	//Return OK
+	return RENDER_OK;
+}
 
 //Function to draw a single monochrome pixel
 //Takes in address of pixel
@@ -25,15 +65,18 @@ RenderStatus PW8MonoDrawPixel(uint16_t address){
 	
 	//Fill array with "on" color
 	for(uint8_t i = 0; i < ((PIXEL_SIZE * PIXEL_SIZE) << 1); i += 2){
-		turn_on[i] = ON_COLOR_HI;
-		turn_on[i + 1] = ON_COLOR_LO;
+		turn_on[i] = colors[1];
+		turn_on[i + 1] = colors[3];
 	}
+	
+	//Placeholder status
+	RenderStatus status = RENDER_UNKNOWN_ERROR;
 	
 	//Send data to driver for drawing and get status
 	//All OK statuses that I've written or will write are 0
 	//Relatively safe to assume that's true always in this context
-	if(St7789Draw(x, x + PIXEL_SIZE - 1, y, y + PIXEL_SIZE - 1, turn_on, ((PIXEL_SIZE * PIXEL_SIZE) << 1)) != RENDER_OK){
-		return RENDER_DOWNSTREAM_ERROR;
+	if((status = St7789Draw(x, x + PIXEL_SIZE - 1, y, y + PIXEL_SIZE - 1, turn_on, ((PIXEL_SIZE * PIXEL_SIZE) << 1))) != RENDER_OK){
+		return RENDER_DOWNSTREAM_ERROR | status;
 	}
 	
 	//Return OK
@@ -90,8 +133,8 @@ RenderStatus PW8MonoDrawTile(Tile* tile, uint8_t* art){
 		bit = (byte >> (7 - (i & 7))) & 0x01;
 		
 		//Use bit to get hi and lo bytes of the color
-		hi = COLORS[bit];
-		lo = COLORS[bit | 0x02];
+		hi = colors[bit];
+		lo = colors[bit | 0x02];
 		
 		//Select index of the hi byte of the top-left true pixel of the current logical pixel
 		dex = ((i / tile->size) * tile->size * PIXEL_SQUARE * 2) + ((i % tile->size) * PIXEL_SIZE * 2);
@@ -111,11 +154,14 @@ RenderStatus PW8MonoDrawTile(Tile* tile, uint8_t* art){
 		}
 	}
 	
+	//Placeholder status
+	RenderStatus status = RENDER_UNKNOWN_ERROR;
+	
 	//Send output array to screen and return status if error
 	//Assumes that, since I wrote all of these, all OK status codes are 0
 	//They are all 0
-	if(St7789Draw(x, x + tile->size * PIXEL_SIZE - 1, y, y + tile->size * PIXEL_SIZE - 1, two_byte_art, pixel_count << 1) != RENDER_OK){
-		return RENDER_DOWNSTREAM_ERROR;
+	if((status = St7789Draw(x, x + tile->size * PIXEL_SIZE - 1, y, y + tile->size * PIXEL_SIZE - 1, two_byte_art, pixel_count << 1)) != RENDER_OK){
+		return RENDER_DOWNSTREAM_ERROR | status;
 	}
 	
 	//Return OK
@@ -133,7 +179,7 @@ RenderStatus PW8MonoDrawTile(Tile* tile, uint8_t* art){
 RenderStatus PW8MonoDrawSprite(Sprite* sprite){
 	
 	//Parse art and size from Sprite
-	uint8_t* art = GetArt(sprite->animation, sprite->sprite_flags);
+	uint8_t* art = GetSpriteArt(sprite->animation, sprite->sprite_flags);
 	uint8_t height = (sprite->sprite_flags >> 6) & 0x03;
 	uint8_t width = (sprite->sprite_flags >> 4) & 0x03;
 	
@@ -250,7 +296,7 @@ RenderStatus PW8MonoDrawSprite(Sprite* sprite){
 //Returns status
 RenderStatus PW8MonoClearSprite(Sprite* sprite){
 	//Parse art and size from Sprite
-	uint8_t art[2] = {OFF_COLOR_HI, OFF_COLOR_LO};
+	uint8_t art[2] = {colors[0], colors[2]};
 	uint8_t height = (sprite->sprite_flags >> 6) & 0x03;
 	uint8_t width = (sprite->sprite_flags >> 4) & 0x03;
 	
@@ -360,7 +406,187 @@ RenderStatus PW8MonoClearSprite(Sprite* sprite){
 	return RENDER_OK;
 }
 
-//Not yet implemented
-RenderStatus PW8MonoDrawRegion(Region* region, uint8_t* art){
-	return RENDER_UNKNOWN_ERROR;
+//Function to write a character to the screen
+//Takes in the character and the top-left logical pixel address
+//Converts to true pixel address
+//Fetches character artwork
+//Calls DrawPixel to draw pixels
+//Does NOT handle invalid addresses or wrapping in any way
+//Returns status
+RenderStatus PW8MonoWriteChar(uint8_t character, uint16_t address){
+	
+	//Adjust address by logical pixel size
+	uint16_t pix_add = address * PIXEL_SIZE;
+	
+	//Parse address into x and y
+	uint8_t pix_x = (pix_add >> 8) & 0x00FF;
+	uint8_t pix_y = pix_add & 0x00FF;
+	
+	//Row and column counters to handle art properly
+	uint8_t col_ctr = 0;
+	uint8_t row_ctr = 0;
+	
+	//Fetch correct artwork
+	const uint8_t* char_art = GetFont(character);
+	
+	//Placeholder status
+	RenderStatus status = RENDER_UNKNOWN_ERROR;
+	
+	//Iterate through each byte in the art
+	for(uint8_t i = 0; i < 3; i++){
+		
+		//Iterate through each bit in the byte
+		for(uint8_t j = 0; j < 8; j++){
+			
+			//If bit is a 1, draw it
+			//If bit is a 0, move on
+			if(char_art[i] & (0x80 >> j)){
+				
+				//Calculate correct address
+				pix_add = ((pix_x + col_ctr) << 8) | (pix_y + row_ctr);
+				
+				//Attempt to draw pixel, if error return error
+				if((status = PW8MonoDrawPixel(pix_add)) != RENDER_OK){
+					return status;
+				}
+			}
+			
+			//Increment row counter by logical pixel size
+			row_ctr += PIXEL_SIZE;
+			
+			//If 5 pixels have been written already
+			if(row_ctr > (PIXEL_SIZE * 4)){
+				
+				//Go back to row 0
+				row_ctr = 0;
+				
+				//And increment column counter by logical pixel size
+				col_ctr += PIXEL_SIZE;
+			}
+		}
+	}
+	
+	//Return OK
+	return RENDER_OK;
+}
+
+//Function to write a string to the screen
+//Takes in the string, the string length, and the top-left logical address
+//Adjusts address to write left to right
+//Calls WriteChar for each character given
+//Returns status
+RenderStatus PW8MonoWriteString(uint8_t* string, uint8_t length, uint16_t address){
+	
+	//Parse address to shift for each character
+	uint8_t x = (address >> 8) & 0x00FF;
+	uint8_t y = address & 0x00FF;
+	
+	//Placeholder status
+	RenderStatus status = RENDER_UNKNOWN_ERROR;
+	
+	//Iterate through each character
+	for(uint8_t i = 0; i < length; i++){
+		
+		//Attempt to write character, if error return error
+		if((status = PW8MonoWriteChar(string[i], ((x + 5 * i) << 8) | y)) != RENDER_OK){
+			return status;
+		}
+	}
+	
+	//Return OK
+	return RENDER_OK;
+}
+
+//Function to erase a character written to the screen
+//Takes in the top-left address of the character
+//Colors the 5x5 logical pixel character area to the OFF color
+//Returns status
+RenderStatus PW8MonoEraseChar(uint16_t address){
+	
+	//Adjust address from logical pixel to true pixel
+	uint16_t pix_add = address * PIXEL_SIZE;
+	
+	//Parse address into x and y for starting positions
+	uint8_t x_start = (pix_add >> 8) & 0x00FF;
+	uint8_t y_start = pix_add & 0x00FF;
+	
+	//Get end positions for x and y using logical pixel size and char size, which is 5x5
+	uint8_t x_end = x_start + (5 * PIXEL_SIZE) - 1;
+	uint8_t y_end = y_start + (5 * PIXEL_SIZE) - 1;
+	
+	//Create array to hold clear artwork
+	uint8_t art[CHAR_ARRAY_SIZE];
+	
+	//Placeholder status
+	RenderStatus status = RENDER_UNKNOWN_ERROR;
+	
+	//Populate clear artwork with OFF color
+	for(uint8_t i = 0; i < CHAR_ARRAY_SIZE; i += 2){
+		art[i] = colors[0];
+		art[i + 1] = colors[2];
+	}
+	
+	//Attempt to draw OFF color to all the pixels in the char
+	//If error, return error
+	if((status = St7789Draw(x_start, x_end, y_start, y_end, art, CHAR_ARRAY_SIZE)) != RENDER_OK){
+		return RENDER_DOWNSTREAM_ERROR | status;
+	}
+	
+	//Return OK
+	return RENDER_OK;
+}
+
+//Function to erase a string written to the screen
+//Takes in the top-left logical pixel address and the length
+//Calls EraseChar until the whole string is erased
+//Returns status
+RenderStatus PW8MonoEraseString(uint16_t address, uint8_t length){
+	
+	//Copy address to change later
+	uint16_t pix_add = address;
+	
+	//Parse address into x and y
+	uint8_t x = (pix_add >> 8) & 0x00FF;
+	uint8_t y = pix_add & 0x00FF;
+	
+	//Placeholder status
+	RenderStatus status = RENDER_UNKNOWN_ERROR;
+	
+	//Iterate through all chars in string
+	for(uint8_t i = 0; i < length; i++){
+		
+		//Update address
+		pix_add = ((x << 8) & 0xFF00) | y;
+		
+		//Attempt to clear character
+		//If error, return error
+		if((status = PW8MonoEraseChar(pix_add)) != RENDER_OK){
+			return status;
+		}
+		
+		//Move on to the next char address
+		x += 5;
+	}
+	
+	//Return OK
+	return RENDER_OK;
+}
+
+//Function to clear the screen
+//No inputs
+//Just calls St7789Clear from the driver
+//Returns status
+RenderStatus PW8MonoClearScreen(void){
+	
+	//Placeholder status
+	RenderStatus status = RENDER_UNKNOWN_ERROR;
+	
+	//Attempt to clear the screen
+	//If error, return error
+	if((status = St7789Clear()) != RENDER_OK){
+		return RENDER_DOWNSTREAM_ERROR | status;
+	}
+	
+	//Return OK
+	return RENDER_OK;
 }
