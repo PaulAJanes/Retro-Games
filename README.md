@@ -1,5 +1,9 @@
 Pixelwerke8 is a lightweight 8-bit video game engine designed to run on a PIC18F16Q41 microcontroller.
-Sprites populate a Tile-based grid, and the engine provides addressed movement and collision detection. The 1-bit renderer, by default, will use black and white as the two colors, but that can be configured to any two 16-bit colors.
+It provides:
+-A tile-based grid system with addressing
+-Sprite game objects with configurable art, size, and variation
+-1-bit renderer with configurable colors, black and white default
+-Basic audio output via an LM386 circuit
 
 Software:
 MPLABX
